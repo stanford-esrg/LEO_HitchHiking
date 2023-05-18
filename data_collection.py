@@ -1,9 +1,6 @@
 import ast
-import json
-import glob
 import os
 import pandas as pd
-import subprocess
 import tempfile
 import time
 from datetime import date
@@ -11,15 +8,20 @@ from data_parse import get_last_hops_from_paris_tr, aggregate_data
 from multiprocessing import Process
 from scamper import *
 from search_censys import *
+from bq_upload import *
+
 
 class DataCollection:
 
-    def __init__(self, data_dir: str = None) -> None:
+    def __init__(self, data_dir: str = None, bq_dataset_id: str = None) -> None:
         """
         Specifies the directory to store measurement data in. If one is not
         specified, the current directory is used.
 
+        Specifies the Big Query table to upload to.
+
         :param data_dir: directory path
+        :param bq_dataset_id: Big Query dataset ID
         """ 
         if data_dir is None:
             data_dir = "."
@@ -28,6 +30,12 @@ class DataCollection:
             self.create_data_dirs()
         else:
             raise Exception("Directory path provided does not exist.")
+
+        if bq_dataset_id is not None:
+            self.bq_exposed_services_table_id = bq_dataset_id + ".exposed_services"
+            self.bq_sec_last_ping_table_id = bq_dataset_id + ".sec_last_pings"
+            self.bq_last_ping_table_id = bq_dataset_id + ".endpoint_pings"
+            
 
     def create_data_dirs(self) -> None:
         """
@@ -55,39 +63,47 @@ class DataCollection:
         }
 
         
-    def paris_traceroute_exposed_services(self, asn: int, ipv: int = None, output_to_file: bool = False) -> pd.DataFrame:
+    def paris_traceroute_exposed_services(self, asn: int, ipv: int = None, upload_to_bq: bool = True) -> pd.DataFrame:
         """
         Queries Censys for exposed services then runs an icmp paris-traceroute
         to each exposed IP address and stores data in `exposed_services`.
 
         :param asn: the autonomous system number to query
         :param ipv: (optional) specify 4 or 6 to filter for IP version
-        :param output_to_file: (optional) save results to .json file (default does not output to file)
+        :param upload_to_bq: (optional) upload data to big query (default saves the output to file)
         :return: dataframe of exposed services information
         """
 
         print("(paris_traceroute_exposed_services) start")
         def stringified_list_to_list(x):
+            if x == None:
+                return []
             try:
                 return ast.literal_eval(x)
             except:
                 return [x]
+            
+        # FIXME - temp to appease bigquery json file requirements
+        def list_of_nulls_to_empty_list(x):
+            return []
 
         output_file = os.path.join(self.exposed_services_dir, str(date.today()) + ".json")
 
-		# search Censys for exposed services matching `asn`
+        # search Censys for exposed services matching `asn`
+        # FIXME
         exposed_services = search_censys(asn, ipv)
         print("(paris_traceroute_exposed_services) num of services found: " + str(len(exposed_services['ip'])))
         df = pd.DataFrame.from_dict(exposed_services)
         df['dns_name'] = df['dns_name'].apply(str)
         df = df.groupby(['ip', 'date', 'asn', 'dns_name']).agg(list).reset_index()
         df['dns_name'] = df['dns_name'].apply(stringified_list_to_list)
+        df['pep_link'] = df['pep_link'].apply(list_of_nulls_to_empty_list)
         
         # run paris-traceroutes for each unique IP and extract the 
         # second-to-last hop and last hop
-        with tempfile.NamedTemporaryFile() as temp_ip:
-            df[['ip']].to_csv(temp_ip, header=False, index=False) 
-            with tempfile.NamedTemporaryFile() as temp_tr:
+        with tempfile.NamedTemporaryFile(mode='w+') as temp_ip:
+            df[['ip']].to_csv(temp_ip.name, header=False, index=False) 
+            with tempfile.NamedTemporaryFile(mode='w+') as temp_tr:
 
                 print("(paris_traceroute_exposed_services) run_paris_trs start")
                 run_paris_trs(temp_ip.name, temp_tr.name)
@@ -102,15 +118,19 @@ class DataCollection:
                 df = df.drop(columns=['dst'])
         
         # output to json file
-        if output_to_file:
-            df.to_json(output_file,
-            orient="records",
-            lines=True)
+        if upload_to_bq:
+            with tempfile.NamedTemporaryFile(mode='w+', suffix=".json") as temp_json:
+                df.to_json(temp_json.name, orient="records", lines=True)
+                temp_json.seek(0)
+                upload_exposed_services_file(self.bq_exposed_services_table_id, temp_json.name)
+        else:
+            df.to_json(output_file, orient="records", lines=True)
+
         print("(paris_traceroute_exposed_services) end")
         return df
 
 
-    def ping_exposed_services(self, asn: int, ipv: int = None, ping_len: int = 5, ping_interval: int = 1, output_to_file = False) -> None:
+    def ping_exposed_services(self, asn: int, ipv: int = None, ping_len: int = 5, ping_interval: int = 1, upload_to_bq: bool = False) -> None:
         """
         Pings the exposed services and collects measurements for the RTTs of 
         the last hop and the second-to-last hop found in the paris-traceroute. 
@@ -121,12 +141,14 @@ class DataCollection:
         :param ipv: (optional) specify 4 or 6 to filter for IP version
         :param ping_len: (optional) specify the number of probes to send
         :param ping_interval: (optional) specify the number of seconds between probes
-        :param output_to_file: (optional) save results to .json file (default does not output to file)
+        :param upload_to_bq: (optional) upload data to bigquery (default saves output to file)
         """
 
         print("(paris_exposed_services) start")
         start_time = time.time()
-        df = self.paris_traceroute_exposed_services(asn, ipv, output_to_file)
+        # # FIXME
+        # df = pd.read_json("exposed_services/2023-05-18.json", lines=True)
+        df = self.paris_traceroute_exposed_services(asn, ipv, upload_to_bq)
         print("(paris_exposed_services) total exposed IPs: " + str(len(df)))
         
         # only ping the reachable endpoints
@@ -135,19 +157,16 @@ class DataCollection:
         df = df.groupby(['hop_count', 'sec_last_hop'])['ip'].agg(list).reset_index()
         print("(paris_exposed_services) grouped exposed IPs: " + str(len(df)))
 
+        sec_last_hop_output = os.path.join(self.pings_dir['sec_last_hop'], str(date.today()) + ".csv" )
+        last_hop_output = os.path.join(self.pings_dir['last_hop'], str(date.today()) + ".csv")
         
         # create temporary file structure
         temp_ip_files = {}
-        temp_sec_last_hop_files = {}
-        temp_last_hop_files = {}
-        processes = []
 
-        agg_sec_last_hop_data = tempfile.NamedTemporaryFile(delete=False)
-        agg_last_hop_data = tempfile.NamedTemporaryFile(delete=False)
+        agg_sec_last_hop_data = tempfile.NamedTemporaryFile(mode='w+', delete=False, suffix='.csv')
+        agg_last_hop_data = tempfile.NamedTemporaryFile(mode='w+', delete=False, suffix='.csv')
         for i in df.index:
-            temp_ip_files[i] = tempfile.NamedTemporaryFile(delete=False)
-            temp_sec_last_hop_files[i] = [tempfile.NamedTemporaryFile(delete=False)] * ping_len
-            temp_last_hop_files[i] = [tempfile.NamedTemporaryFile(delete=False)] * ping_len
+            temp_ip_files[i] = tempfile.NamedTemporaryFile(mode='w+', delete=False, suffix='.txt')
 
         for i in df.index:
             print("--- %s seconds ---" % (time.time() - start_time))
@@ -156,50 +175,39 @@ class DataCollection:
             last_ttl = int(df.iloc[i]['hop_count'])
             print("pinging ips with \t sec_last_hop: " + str(sec_last_ttl) + "\tlast_ttl: " + str(last_ttl))
             print("num IPs in ping: " + str(len(ips)))
-            ip_df = pd.DataFrame({'ip': ips})
-            print(ip_df)
 
-            ip_df.to_csv(temp_ip_files[i], index=False) 
+
+            ip_df = pd.DataFrame({'ip': ips})
+
+            temp_ip_files[i].flush()
+            ip_df.to_csv(temp_ip_files[i].name, header=False, index=False) 
             temp_ip_files[i].seek(0)
 
+
             p1 = Process(target = ttl_ping,
-                        args = (temp_ip_files[i].name, temp_sec_last_hop_files[i], sec_last_ttl, ping_len, ping_interval,))
+                        args = (True, temp_ip_files[i].name, 
+                                sec_last_hop_output, sec_last_ttl, 
+                                ping_len, ping_interval, 
+                                upload_to_bq, self.bq_sec_last_ping_table_id))
             p1.start()
-            processes.append(p1)
+
+            temp_ip_files[i].seek(0)
+
             p2 = Process(target = ttl_ping,
-                        args = (temp_ip_files[i].name, temp_last_hop_files[i], last_ttl, ping_len, ping_interval,))
+                        args = (False, temp_ip_files[i].name, 
+                                last_hop_output, last_ttl, 
+                                ping_len, ping_interval, 
+                                upload_to_bq, self.bq_last_ping_table_id))
             p2.start()
-            processes.append(p2)
 
+            p1.join()
+            p2.join()
 
-        for p in processes:
-            p.join()
-
-		# aggregate data
-        for i in df.index:
-            aggregate_data(temp_sec_last_hop_files[i]).to_csv(agg_sec_last_hop_data.name, header=None, index=None, mode='a') 
-            aggregate_data(temp_last_hop_files[i]).to_csv(agg_last_hop_data.name, header=None, index=None, mode='a')
-
-		# output to a csv file
-        if output_to_file:
-            print("(paris_exposed_services) outputting to file")
-            sec_last_hop_output = os.path.join(self.pings_dir['sec_last_hop'], str(date.today()) + ".csv" )
-            last_hop_output = os.path.join(self.pings_dir['last_hop'], str(date.today()) + ".csv")
-            with open(sec_last_hop_output, 'w') as of:
-                with open(agg_sec_last_hop_data.name, 'r') as rf:
-                    of.write(rf.read())
-            with open(last_hop_output, 'w') as of:
-                with open(agg_last_hop_data.name, 'r') as rf:
-                    of.write(rf.read())
             
         print("(paris_exposed_services) clean up")
-		# clean up temporary file structure
+        # clean up temporary file structure
         for i in df.index:
             temp_ip_files[i].close()
-            for x in temp_sec_last_hop_files[i]:
-                x.close()
-            for x in temp_last_hop_files[i]:
-                x.close()
         agg_sec_last_hop_data.close()
         agg_last_hop_data.close()
 

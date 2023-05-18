@@ -46,12 +46,12 @@ def search_censys(asn: int, ipv: int = None):
                         continue
 
                     # get DNS name if it exists
-                    dns_name = None
+                    dns_name = []
                     # FIXME
                     try: 
                         dns_name = entry['dns']['reverse_dns']['names']
                     except:
-                        dns_name = None
+                        dns_name = []
 
                     # label hosts using pep-link
                     pep_link = None
@@ -77,7 +77,7 @@ def search_censys(asn: int, ipv: int = None):
                     exposed_services['ip'].append(entry['ip'])
                     exposed_services['port'].append(service['port'])
                     exposed_services['dns_name'].append(dns_name)
-                    exposed_services['pep_link'].append(pep_link)
+                    exposed_services['pep_link'].append(pep_link) 
 
             except Exception as e:
                 sys.stderr.write(str(e) + "\t could not get ip")
@@ -86,24 +86,3 @@ def search_censys(asn: int, ipv: int = None):
     exposed_services['date'] = [str(date.today())] * len(exposed_services['ip'])
     print("(search_censys) end")
     return exposed_services
-
-# # paris-traceroute
-# def run_paris_trs(ip_file, output_file):
-#     """
-#     output file json
-#     """
-#     # cmd_str = "scamper -O json -o /mnt/darknet_proj/mandat_scratch/satellite/satellite_measurements/scamper/2023-05-10/paris_icmp_20/" + str(file.split('/')[-1]) + "_" + str(tr_n) + ".json -c \"trace -P icmp-paris -q 20 -Q \" " + file
-#     cmd_str = "scamper -O json -o " + output_file +  " -c \"trace -P icmp-paris -q 1 \" " + ip_file
-#     subprocess.run(cmd_str, shell=True)
-
-# # extract last hop number, second-to-last hop number, second-to-last ip
-# def sort_hops(e):
-#     return e['probe_ttl']
-
-# def get_sec_last_ip(hops):
-#     hops.sort(key=sort_hops)
-#     return hops[-2]['addr']
-
-# def get_sec_last_probe_ttl(hops):
-#     hops.sort(key=sort_hops)
-#     return hops[-2]['probe_ttl']
