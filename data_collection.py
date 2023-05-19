@@ -31,7 +31,11 @@ class DataCollection:
         else:
             raise Exception("Directory path provided does not exist.")
 
-        if bq_dataset_id is not None:
+        if bq_dataset_id is None:
+            self.bq_exposed_services_table_id = None
+            self.bq_sec_last_ping_table_id = None
+            self.bq_last_ping_table_id = None
+        else:
             self.bq_exposed_services_table_id = bq_dataset_id + ".exposed_services"
             self.bq_sec_last_ping_table_id = bq_dataset_id + ".sec_last_pings"
             self.bq_last_ping_table_id = bq_dataset_id + ".endpoint_pings"
@@ -91,9 +95,20 @@ class DataCollection:
 
         # search Censys for exposed services matching `asn`
         # FIXME
-        exposed_services = search_censys(asn, ipv)
-        print("(paris_traceroute_exposed_services) num of services found: " + str(len(exposed_services['ip'])))
-        df = pd.DataFrame.from_dict(exposed_services)
+        df = pd.DataFrame()
+        exposed_services = {}
+        fallback_file = False
+        try:
+            exposed_services = search_censys(asn, ipv)
+            print("(paris_traceroute_exposed_services) num of services found: " + str(len(exposed_services['ip'])))
+            df = pd.DataFrame.from_dict(exposed_services)
+        except:
+            print('(paris_traceroute_exposed_services) using fallback file')
+            df = pd.read_json(
+                '/mnt/darknet_proj/mandat_scratch/satellite/satellite_measurements/exposed_services/2023-05-17.json',
+                lines=True
+            )
+            return df
         df['dns_name'] = df['dns_name'].apply(str)
         df = df.groupby(['ip', 'date', 'asn', 'dns_name']).agg(list).reset_index()
         df['dns_name'] = df['dns_name'].apply(stringified_list_to_list)
@@ -118,7 +133,7 @@ class DataCollection:
                 df = df.drop(columns=['dst'])
         
         # output to json file
-        if upload_to_bq:
+        if upload_to_bq and not fallback_file:
             with tempfile.NamedTemporaryFile(mode='w+', suffix=".json") as temp_json:
                 df.to_json(temp_json.name, orient="records", lines=True)
                 temp_json.seek(0)
@@ -163,8 +178,8 @@ class DataCollection:
         # create temporary file structure
         temp_ip_files = {}
 
-        agg_sec_last_hop_data = tempfile.NamedTemporaryFile(mode='w+', delete=False, suffix='.csv')
-        agg_last_hop_data = tempfile.NamedTemporaryFile(mode='w+', delete=False, suffix='.csv')
+        # agg_sec_last_hop_data = tempfile.NamedTemporaryFile(mode='w+', delete=False, suffix='.csv')
+        # agg_last_hop_data = tempfile.NamedTemporaryFile(mode='w+', delete=False, suffix='.csv')
         for i in df.index:
             temp_ip_files[i] = tempfile.NamedTemporaryFile(mode='w+', delete=False, suffix='.txt')
 
@@ -208,8 +223,8 @@ class DataCollection:
         # clean up temporary file structure
         for i in df.index:
             temp_ip_files[i].close()
-        agg_sec_last_hop_data.close()
-        agg_last_hop_data.close()
+        # agg_sec_last_hop_data.close()
+        # agg_last_hop_data.close()
 
         print("(paris_exposed_services) end")
         print("--- TOTAL TIME %s seconds ---" % (time.time() - start_time))

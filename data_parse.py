@@ -35,7 +35,7 @@ def get_last_hops_from_paris_tr(file_path: str) -> pd.DataFrame:
     df = df[['dst', 'stop_reason', 'hop_count', 'sec_last_ip', 'sec_last_hop']]
     return df
 
-def aggregate_data(files: list) -> pd.DataFrame:
+def aggregate_data(files: dict) -> pd.DataFrame:
     """
     Aggregates data from list of files containing scamper outputs when running ttl_ping
     into a single file.
@@ -79,7 +79,7 @@ def aggregate_data(files: list) -> pd.DataFrame:
             return None
 
     dfs = []
-    for seq, f in enumerate(files):
+    for seq, f in files.items():
         # f.seek(0)
         f.flush()
         df = pd.DataFrame()

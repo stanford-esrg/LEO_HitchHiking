@@ -33,7 +33,9 @@ def ttl_ping (sec_last: bool, input_file: str, output_destination: str, ttl: int
     """
 
     processes = []
-    output_dir = []
+    output_dir = {}
+    for seq in range(1, ping_len + 1):
+        output_dir[seq] = scamper_output_file = tempfile.NamedTemporaryFile(mode='w+', delete=False, suffix='.json')
 
     def append_data(process):
         p = process["pid"]
@@ -43,16 +45,17 @@ def ttl_ping (sec_last: bool, input_file: str, output_destination: str, ttl: int
             return True
 
         p.wait()
-        output_dir[process["seq"] - 1].seek(0)
+        # output_dir[process["seq"] - 1].seek(0)
+        output_dir[process["seq"]].seek(0)
 
         return False
 
     # create temporary output files then aggregate at the end
     for seq in range(1, ping_len + 1):
         start_time = time.time()
-        # scamper_output_file = output_dir[seq - 1] #os.path.join(output_dir, str(seq) + ".json")
-        scamper_output_file = tempfile.NamedTemporaryFile(mode='w+', delete=False, suffix='.json')
-        output_dir.append(scamper_output_file)
+        # scamper_output_file = tempfile.NamedTemporaryFile(mode='w+', delete=False, suffix='.json')
+        # output_dir.append(scamper_output_file)
+        scamper_output_file = output_dir[seq]
         scamper_output_file.flush()
 
         try:
@@ -78,6 +81,11 @@ def ttl_ping (sec_last: bool, input_file: str, output_destination: str, ttl: int
 
     df = aggregate_data(output_dir)
 
+	# cleanup files
+    # for f in output_dir:
+    #     f.close()
+    for seq in range(1, ping_len + 1):
+        output_dir[seq].close()
 
     if sec_last:
         print("len of sec_last_pings df: " + str(len(df)))
@@ -93,8 +101,5 @@ def ttl_ping (sec_last: bool, input_file: str, output_destination: str, ttl: int
     else:
         df.to_csv(output_destination, header=None, index=None, mode='a')
 
-	# cleanup files
-    for f in output_dir:
-        f.close()
     
     return df
