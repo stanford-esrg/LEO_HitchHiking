@@ -67,18 +67,7 @@ class DataCollection:
         }
 
         
-    def paris_traceroute_exposed_services(self, asn: int, ipv: int = None, upload_to_bq: bool = True) -> pd.DataFrame:
-        """
-        Queries Censys for exposed services then runs an icmp paris-traceroute
-        to each exposed IP address and stores data in `exposed_services`.
-
-        :param asn: the autonomous system number to query
-        :param ipv: (optional) specify 4 or 6 to filter for IP version
-        :param upload_to_bq: (optional) upload data to big query (default saves the output to file)
-        :return: dataframe of exposed services information
-        """
-
-        print("(paris_traceroute_exposed_services) start")
+    def get_censys_exposed_services(self, asn: int, ipv: int = None) -> pd.DataFrame:
         def stringified_list_to_list(x):
             if x == None:
                 return []
@@ -91,33 +80,53 @@ class DataCollection:
         def list_of_nulls_to_empty_list(x):
             return []
 
-        output_file = os.path.join(self.exposed_services_dir, str(date.today()) + ".json")
-
-        # search Censys for exposed services matching `asn`
-        # FIXME
         df = pd.DataFrame()
         exposed_services = {}
-        fallback_file = False
         try:
             exposed_services = search_censys(asn, ipv)
             print("(paris_traceroute_exposed_services) num of services found: " + str(len(exposed_services['ip'])))
             df = pd.DataFrame.from_dict(exposed_services)
         except:
-            print('(paris_traceroute_exposed_services) using fallback file')
-            df = pd.read_json(
-                '/mnt/darknet_proj/mandat_scratch/satellite/satellite_measurements/exposed_services/2023-05-17.json',
-                lines=True
-            )
             return df
         df['dns_name'] = df['dns_name'].apply(str)
         df = df.groupby(['ip', 'date', 'asn', 'dns_name']).agg(list).reset_index()
         df['dns_name'] = df['dns_name'].apply(stringified_list_to_list)
         df['pep_link'] = df['pep_link'].apply(list_of_nulls_to_empty_list)
+        return df
+
+    # def paris_traceroute_exposed_services(self, asn: int, ipv: int = None, upload_to_bq: bool = True) -> pd.DataFrame:
+    def paris_traceroute_exposed_services(self, df: pd.DataFrame, ip_col: str, upload_to_bq: bool = True) -> pd.DataFrame:
+        """
+        Queries Censys for exposed services then runs an icmp paris-traceroute
+        to each exposed IP address and stores data in `exposed_services`.
+
+        :param asn: the autonomous system number to query
+        :param ipv: (optional) specify 4 or 6 to filter for IP version
+        :param upload_to_bq: (optional) upload data to big query (default saves the output to file)
+        :return: dataframe of exposed services information
+        """
+
+        print("(paris_traceroute_exposed_services) start")
+
+        output_file = os.path.join(self.exposed_services_dir, str(date.today()) + ".json")
+
+        # search Censys for exposed services matching `asn`
+        # FIXME
         
         # run paris-traceroutes for each unique IP and extract the 
         # second-to-last hop and last hop
+        fallback_file = False
         with tempfile.NamedTemporaryFile(mode='w+') as temp_ip:
-            df[['ip']].to_csv(temp_ip.name, header=False, index=False) 
+            if df.empty:
+                print("(paris_traceroute_exposed_services) using fallbavk file")
+                df = pd.read_json(
+                    '/mnt/darknet_proj/mandat_scratch/satellite/satellite_measurements/exposed_services/2023-05-17.json',
+                    lines=True
+                )
+                df = df[['ip', 'date', 'asn', 'dns_name', 'port', 'pep_link']]
+                fallback_file = True
+                
+            df[[ip_col]].to_csv(temp_ip.name, header=False, index=False) 
             with tempfile.NamedTemporaryFile(mode='w+') as temp_tr:
 
                 print("(paris_traceroute_exposed_services) run_paris_trs start")
@@ -127,7 +136,7 @@ class DataCollection:
                 df = df.merge(
                     last_hops, 
                     how="left", 
-                    left_on='ip', 
+                    left_on=ip_col, 
                     right_on='dst'
                 )
                 df = df.drop(columns=['dst'])
@@ -138,14 +147,14 @@ class DataCollection:
                 df.to_json(temp_json.name, orient="records", lines=True)
                 temp_json.seek(0)
                 upload_exposed_services_file(self.bq_exposed_services_table_id, temp_json.name)
-        else:
+        elif not fallback_file:
             df.to_json(output_file, orient="records", lines=True)
 
         print("(paris_traceroute_exposed_services) end")
         return df
 
 
-    def ping_exposed_services(self, asn: int, ipv: int = None, ping_len: int = 5, ping_interval: int = 1, upload_to_bq: bool = False) -> None:
+    def ping_exposed_services(self, df: pd.DataFrame, ping_len: int = 5, ping_interval: int = 1, upload_to_bq: bool = False) -> None:
         """
         Pings the exposed services and collects measurements for the RTTs of 
         the last hop and the second-to-last hop found in the paris-traceroute. 
@@ -160,14 +169,11 @@ class DataCollection:
         """
 
         print("(paris_exposed_services) start")
-        start_time = time.time()
-        # # FIXME
-        # df = pd.read_json("exposed_services/2023-05-18.json", lines=True)
-        df = self.paris_traceroute_exposed_services(asn, ipv, upload_to_bq)
         print("(paris_exposed_services) total exposed IPs: " + str(len(df)))
+        start_time = time.time()
         
         # only ping the reachable endpoints
-        df = df[df['stop_reason'] == 'COMPLETED']
+        # df = df[df['stop_reason'] == 'COMPLETED']
         print("(paris_exposed_services) filtered exposed IPs: " + str(len(df)))
         df = df.groupby(['hop_count', 'sec_last_hop'])['ip'].agg(list).reset_index()
         print("(paris_exposed_services) grouped exposed IPs: " + str(len(df)))
@@ -178,10 +184,8 @@ class DataCollection:
         # create temporary file structure
         temp_ip_files = {}
 
-        # agg_sec_last_hop_data = tempfile.NamedTemporaryFile(mode='w+', delete=False, suffix='.csv')
-        # agg_last_hop_data = tempfile.NamedTemporaryFile(mode='w+', delete=False, suffix='.csv')
         for i in df.index:
-            temp_ip_files[i] = tempfile.NamedTemporaryFile(mode='w+', delete=False, suffix='.txt')
+            temp_ip_files[i] = tempfile.NamedTemporaryFile(mode='w+', suffix='.txt')
 
         for i in df.index:
             print("--- %s seconds ---" % (time.time() - start_time))
@@ -223,8 +227,6 @@ class DataCollection:
         # clean up temporary file structure
         for i in df.index:
             temp_ip_files[i].close()
-        # agg_sec_last_hop_data.close()
-        # agg_last_hop_data.close()
 
         print("(paris_exposed_services) end")
         print("--- TOTAL TIME %s seconds ---" % (time.time() - start_time))
