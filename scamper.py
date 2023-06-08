@@ -45,7 +45,6 @@ def ttl_ping (sec_last: bool, input_file: str, output_destination: str, ttl: int
             return True
 
         p.wait()
-        # output_dir[process["seq"] - 1].seek(0)
         output_dir[process["seq"]].seek(0)
 
         return False
@@ -53,8 +52,6 @@ def ttl_ping (sec_last: bool, input_file: str, output_destination: str, ttl: int
     # create temporary output files then aggregate at the end
     for seq in range(1, ping_len + 1):
         start_time = time.time()
-        # scamper_output_file = tempfile.NamedTemporaryFile(mode='w+', delete=False, suffix='.json')
-        # output_dir.append(scamper_output_file)
         scamper_output_file = output_dir[seq]
         scamper_output_file.flush()
 
@@ -99,5 +96,4 @@ def ttl_ping (sec_last: bool, input_file: str, output_destination: str, ttl: int
     else:
         df.to_csv(output_destination, header=None, index=None, mode='a')
 
-    
     return df

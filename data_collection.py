@@ -2,9 +2,8 @@ import ast
 import os
 import pandas as pd
 import tempfile
-import time
 from datetime import date
-from data_parse import get_last_hops_from_paris_tr, aggregate_data
+from data_parse import get_last_hops_from_paris_tr
 from multiprocessing import Process
 from scamper import *
 from search_censys import *
@@ -68,6 +67,13 @@ class DataCollection:
 
         
     def get_censys_exposed_services(self, asn: int, ipv: int = None) -> pd.DataFrame:
+        """
+        Queries Censys for exposed services and returns the result as a dataframe.
+
+        :param asn: the autonomous system number to query
+        :param ipv: (optional) specify 4 or 6 to filter for IP version
+        :return: dataframe of exposed services information
+        """
         def stringified_list_to_list(x):
             if x == None:
                 return []
@@ -76,7 +82,7 @@ class DataCollection:
             except:
                 return [x]
             
-        # FIXME - temp to appease bigquery json file requirements
+        # temp to appease bigquery json file requirements
         def list_of_nulls_to_empty_list(x):
             return []
 
@@ -94,44 +100,41 @@ class DataCollection:
         df['pep_link'] = df['pep_link'].apply(list_of_nulls_to_empty_list)
         return df
 
-    # def paris_traceroute_exposed_services(self, asn: int, ipv: int = None, upload_to_bq: bool = True) -> pd.DataFrame:
     def paris_traceroute_exposed_services(self, df: pd.DataFrame, ip_col: str, upload_to_bq: bool = True) -> pd.DataFrame:
         """
         Queries Censys for exposed services then runs an icmp paris-traceroute
         to each exposed IP address and stores data in `exposed_services`.
 
-        :param asn: the autonomous system number to query
-        :param ipv: (optional) specify 4 or 6 to filter for IP version
+        :param df: a dataframe containing at least one column that contains IP addresses to traceroute
+        :param ip_col: the name of the column that contains the IP addresses to traceroute
         :param upload_to_bq: (optional) upload data to big query (default saves the output to file)
-        :return: dataframe of exposed services information
+        :return: dataframe of traceroute results
         """
-
-        print("(paris_traceroute_exposed_services) start")
 
         output_file = os.path.join(self.exposed_services_dir, str(date.today()) + ".json")
 
-        # search Censys for exposed services matching `asn`
-        # FIXME
-        
         # run paris-traceroutes for each unique IP and extract the 
         # second-to-last hop and last hop
+
         fallback_file = False
         with tempfile.NamedTemporaryFile(mode='w+') as temp_ip:
-            if df.empty:
-                print("(paris_traceroute_exposed_services) using fallbavk file")
-                df = pd.read_json(
-                    '/mnt/darknet_proj/mandat_scratch/satellite/satellite_measurements/exposed_services/2023-05-17.json',
-                    lines=True
-                )
-                df = df[['ip', 'date', 'asn', 'dns_name', 'port', 'pep_link']]
-                fallback_file = True
+            # Uncomment the following block if using a fallback file incase Censys queries
+            # fail. 
+            # If the provided dataframe does not contain data, use a fallback file
+
+            # if df.empty:
+            #     print("(paris_traceroute_exposed_services) using fallback file")
+            #     df = pd.read_json(
+            #         'MYFALLBACKFILE.json' # TODO: edit to fallback file path
+            #         lines=True
+            #     )
+            #     df = df[['ip', 'date', 'asn', 'dns_name', 'port', 'pep_link']]
+            #     fallback_file = True
                 
             df[[ip_col]].to_csv(temp_ip.name, header=False, index=False) 
             with tempfile.NamedTemporaryFile(mode='w+') as temp_tr:
 
-                print("(paris_traceroute_exposed_services) run_paris_trs start")
                 run_paris_trs(temp_ip.name, temp_tr.name)
-                print("(paris_traceroute_exposed_services) run_paris_trs end")
                 last_hops = get_last_hops_from_paris_tr(temp_tr.name)
                 df = df.merge(
                     last_hops, 
@@ -150,7 +153,6 @@ class DataCollection:
         elif not fallback_file:
             df.to_json(output_file, orient="records", lines=True)
 
-        print("(paris_traceroute_exposed_services) end")
         return df
 
 
@@ -161,22 +163,15 @@ class DataCollection:
         Only collects measurements for exposed services with a completed 
         traceroute.
 
-        :param asn: the autonomous system number to query
-        :param ipv: (optional) specify 4 or 6 to filter for IP version
+        :param df: dataframe constructed from `paris_traceroute_exposed_services`
         :param ping_len: (optional) specify the number of probes to send
         :param ping_interval: (optional) specify the number of seconds between probes
         :param upload_to_bq: (optional) upload data to bigquery (default saves output to file)
         """
 
-        print("(paris_exposed_services) start")
-        print("(paris_exposed_services) total exposed IPs: " + str(len(df)))
-        start_time = time.time()
-        
         # only ping the reachable endpoints
-        # df = df[df['stop_reason'] == 'COMPLETED']
-        print("(paris_exposed_services) filtered exposed IPs: " + str(len(df)))
+        df = df[df['stop_reason'] == 'COMPLETED']
         df = df.groupby(['hop_count', 'sec_last_hop'])['ip'].agg(list).reset_index()
-        print("(paris_exposed_services) grouped exposed IPs: " + str(len(df)))
 
         sec_last_hop_output = os.path.join(self.pings_dir['sec_last_hop'], str(date.today()) + ".csv" )
         last_hop_output = os.path.join(self.pings_dir['last_hop'], str(date.today()) + ".csv")
@@ -188,13 +183,9 @@ class DataCollection:
             temp_ip_files[i] = tempfile.NamedTemporaryFile(mode='w+', suffix='.txt')
 
         for i in df.index:
-            print("--- %s seconds ---" % (time.time() - start_time))
             ips = df.iloc[i]['ip']
             sec_last_ttl = int(df.iloc[i]['sec_last_hop'])
             last_ttl = int(df.iloc[i]['hop_count'])
-            print("pinging ips with \t sec_last_hop: " + str(sec_last_ttl) + "\tlast_ttl: " + str(last_ttl))
-            print("num IPs in ping: " + str(len(ips)))
-
 
             ip_df = pd.DataFrame({'ip': ips})
 
@@ -222,11 +213,6 @@ class DataCollection:
             p1.join()
             p2.join()
 
-            
-        print("(paris_exposed_services) clean up")
         # clean up temporary file structure
         for i in df.index:
             temp_ip_files[i].close()
-
-        print("(paris_exposed_services) end")
-        print("--- TOTAL TIME %s seconds ---" % (time.time() - start_time))

@@ -1,9 +1,7 @@
 import glob
 import os
 import pandas as pd
-import tempfile
 from multiprocessing import Process
-# from bq_upload import *
 
 def get_last_hops_from_paris_tr(file_path: str) -> pd.DataFrame:
     """
@@ -80,18 +78,14 @@ def aggregate_data(files: dict) -> pd.DataFrame:
 
     dfs = []
     for seq, f in files.items():
-        # f.seek(0)
         f.flush()
         df = pd.DataFrame()
         try:
             df = pd.read_json(f.name, lines=True)
-            # print("Could load json")
-            # print(df)
         except Exception as e:
-            print("!!!!!!!Could not load json file with seq: " + str(seq))
+            print("Could not load json file with seq: " + str(seq))
             print(e)
-            print(f.read())
-            # continue
+
         if df.empty:
             continue
         df = df[df['type'] == 'trace']
@@ -146,14 +140,3 @@ def agg_for_dir(dir, table_id):
         agg_dfs.append(aggregate_data(f, table_id))
 
     return agg_dfs
-
-
-# # if __name__=='__main__':
-# def upload_data():
-#     # ping sec to last
-#     p1 = Process(target = agg_for_dir,
-#                  args = (last_pings, "endpoint_pings", ))
-#     p1.start()
-#     p2 = Process(target = agg_for_dir,
-#                  args = (sec_last_pings, "sec_last_pings", ))
-#     p2.start()

@@ -1,8 +1,3 @@
-import errno
-import json
-import os
-import pandas as pd
-import subprocess
 import sys
 from censys.search import CensysCerts, CensysHosts
 from datetime import date
@@ -21,7 +16,6 @@ def search_censys(asn: int, ipv: int = None):
     :return: list of exposed ip/port
     """ 
 
-    print("(search_censys) start")
     h = CensysHosts()
     c = CensysCerts()
     exposed_services = {
@@ -33,7 +27,7 @@ def search_censys(asn: int, ipv: int = None):
         'pep_link': [],
     }
 
-    certs_queried = {}
+    # certs_queried = {}
 
     # search Censys for services matching asn
     for page in h.search("autonomous_system.asn:" + str(asn), pages=-1):
@@ -53,7 +47,8 @@ def search_censys(asn: int, ipv: int = None):
                     except:
                         dns_name = []
 
-                    # label hosts using pep-link
+                    # label hosts using pep-link 
+                    # (commented out because costly in # of queries)
                     pep_link = None
                     # try:
                     #     # services.tls.certificates.leaf_data.subject_dn
@@ -67,7 +62,6 @@ def search_censys(asn: int, ipv: int = None):
                     #         print(certificate)
 
                     #     subject_dn = cert['result']['hits'][0]['parsed']['subject_dn']
-                    #     # print(subject_dn) #FIXME
                     #     if 'peplink' in subject_dn.lower():
                     #         pep_link = True
                     # except:
@@ -84,5 +78,4 @@ def search_censys(asn: int, ipv: int = None):
                 sys.stderr.write(str(entry))
 
     exposed_services['date'] = [str(date.today())] * len(exposed_services['ip'])
-    print("(search_censys) end")
     return exposed_services
