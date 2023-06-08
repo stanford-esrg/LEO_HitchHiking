@@ -1,4 +1,4 @@
-# satellite_measurement
+# LEO HitchHiking
 
 ## Prerequisites
 
