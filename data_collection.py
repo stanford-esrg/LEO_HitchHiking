@@ -90,7 +90,6 @@ class DataCollection:
         exposed_services = {}
         try:
             exposed_services = search_censys(asn, ipv)
-            print("(paris_traceroute_exposed_services) num of services found: " + str(len(exposed_services['ip'])))
             df = pd.DataFrame.from_dict(exposed_services)
         except:
             return df
