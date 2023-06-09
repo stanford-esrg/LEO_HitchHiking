@@ -3,7 +3,11 @@
 HitchHiking is a methodology to measure LEO satellite network characteristics at scale. 
 This repository is an implementation of HitchHiking to measure the latency of Starlink and OneWeb customer services. 
 We measure latency by continually sending TTL limited pings on hitchhiked LEO links and collecting their round trip time.
-To learn more about HitchHiking system and performance, check out this (paper)[].
+To learn more about HitchHiking system and performance, check out this [paper]().
+
+The pipeline is run on a daily basis from Stanford University.
+The data collected is publically available in the following [Google BigQuery](https://cloud.google.com/bigquery/docs/introduction) tables: `satellite-measurement-386900.starlink` and `satellite-measurement-386900.oneweb`. 
+
 
 ## Requirements
 HitchHiking does not require a satellite dish. 
