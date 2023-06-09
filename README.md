@@ -1,4 +1,4 @@
-# LEO HitchHiking To Measure Starlink/OneWeb Latency
+# LEO HitchHiking To Measure LEO Satellite Latency
 
 HitchHiking is a methodology to measure LEO satellite network characteristics at scale. 
 This repository is an implementation of HitchHiking to measure the latency of Starlink and OneWeb customer services. 
