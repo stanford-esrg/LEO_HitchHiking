@@ -13,13 +13,13 @@ The data collected is publically available in the following [Google BigQuery](ht
 HitchHiking does not require a satellite dish. 
 Rather, this pipeline requires [Censys](https://github.com/censys/censys-python) (manual [here](https://censys-python.readthedocs.io/en/stable/)) to find exposed LEO customer services, and [Scamper](https://www.caida.org/catalog/software/scamper/man/scamper.1.pdf) (manual [here](https://www.caida.org/catalog/software/scamper/man/scamper.1.pdf)) to scan LEO customer services. 
 
-To install Censys, simply
+To install Censys,
 ```
 pip install censys
 ```
 and follow the rest of the instructions [here](https://github.com/censys/censys-python).
 
-To install Scamper, simply 
+To install Scamper, 
 
 ```
 sudo apt update
@@ -28,7 +28,7 @@ sudo apt install scamper
 
 ## Usage
 
-To run the pipeline, simply run 
+To run the pipeline, run 
 
 ```
 python main.py
