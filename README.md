@@ -6,7 +6,7 @@ We measure latency by continually sending TTL limited pings on hitchhiked LEO li
 To learn more about HitchHiking system and performance, check out this [paper](https://lizizhikevich.github.io/assets/papers/LEO-HitchHiking.pdf).
 
 The pipeline is run on a daily basis from Stanford University.
-The data collected is publically available in the following [Google BigQuery](https://cloud.google.com/bigquery/docs/introduction) tables: [`satellite-measurement-386900.starlink`](console.cloud.google.com/bigquery?ws=!1m4!1m3!3m2!1ssatellite-measurement-386900!2sstarlink) and [`satellite-measurement-386900.oneweb`](console.cloud.google.com/bigquery?ws=!1m4!1m3!3m2!1ssatellite-measurement-386900!2soneweb). 
+The data collected is publically available in the following [Google BigQuery](https://cloud.google.com/bigquery/docs/introduction) tables: [`satellite-measurement-386900.starlink`](https://console.cloud.google.com/bigquery?ws=!1m4!1m3!3m2!1ssatellite-measurement-386900!2sstarlink) and [`satellite-measurement-386900.oneweb`](https://console.cloud.google.com/bigquery?ws=!1m4!1m3!3m2!1ssatellite-measurement-386900!2soneweb). 
 
 
 ## Requirements
