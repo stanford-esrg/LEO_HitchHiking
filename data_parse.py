@@ -33,10 +33,18 @@ def get_last_hops_from_paris_tr(file_path: str) -> pd.DataFrame:
         return e['probe_ttl']
 
     def get_sec_last_ip(hops):
+        # If the list has fewer than two elements, return None
+        if not isinstance(hops, list) or len(hops) < 2:
+            print('not and instance of list or len is not >= 2: ', hops)
+            return None
         hops.sort(key=sort_hops)
         return hops[-2]['addr']
 
     def get_sec_last_probe_ttl(hops):
+        # If the list has fewer than two elements, return None
+        if not isinstance(hops, list) or len(hops) < 2:
+            print('not and instance of list or len is not >= 2: ', hops)
+            return None
         hops.sort(key=sort_hops)
         return hops[-2]['probe_ttl']
 

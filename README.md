@@ -36,6 +36,10 @@ python main.py
 
 To collect data over time, schedule the pipeline to run the pipeline on an automated schedule (e.g., in a [cron job](https://man7.org/linux/man-pages/man5/crontab.5.html)). 
 
+While there are other ways to collect exposed services, the pipeline uses Censys and provides two ways for query Censys data:
+1. [Censys API](https://censys-python.readthedocs.io/en/stable/usage-v2.html)
+2. [Censys Universal Dataset](https://support.censys.io/hc/en-us/articles/360038761891-Research-Access-to-Censys-Data) via BigQuery 
+
 
 ## License and Copyright
 

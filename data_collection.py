@@ -24,6 +24,8 @@ from multiprocessing import Process
 from scamper import *
 from search_censys import *
 from bq_upload import *
+from google.cloud import bigquery
+from google.auth import default
 
 
 class DataCollection:
@@ -82,12 +84,13 @@ class DataCollection:
         }
 
         
-    def get_censys_exposed_services(self, asn: int, ipv: int = None) -> pd.DataFrame:
+    def get_censys_exposed_services(self, asn: int, ipv: int = None, bq: str = None) -> pd.DataFrame:
         """
         Queries Censys for exposed services and returns the result as a dataframe.
 
         :param asn: the autonomous system number to query
         :param ipv: (optional) specify 4 or 6 to filter for IP version
+        :param bq: (optional) the BigQuery table to pull data from
         :return: dataframe of exposed services information
         """
         def stringified_list_to_list(x):
@@ -97,6 +100,15 @@ class DataCollection:
                 return ast.literal_eval(x)
             except:
                 return [x]
+        
+        def repeated_field_to_list(x):
+            elements = x.strip('[]').strip().split()
+            if all(element.isdigit() for element in elements):
+                return [int(element) for element in elements]
+            elif all(element.lower() in ['true', 'false'] for element in elements):
+                return [element.lower() == 'true' for element in elements]
+            else:
+                return []
             
         # temp to appease bigquery json file requirements
         def list_of_nulls_to_empty_list(x):
@@ -105,8 +117,44 @@ class DataCollection:
         df = pd.DataFrame()
         exposed_services = {}
         try:
-            exposed_services = search_censys(asn, ipv)
-            df = pd.DataFrame.from_dict(exposed_services)
+            exposed_services = pd.DataFrame()
+            if bq:
+                client = bigquery.Client()
+                ip_col = 'host_identifier.ipv6' if ipv == 6 else 'host_identifier.ipv4'
+                QUERY = (
+                    'SELECT DISTINCT '
+                    '    {ip_col} as ip, '
+                    '    CURRENT_DATE() as date, '
+                    '    {asn} as asn, '
+                    '    dns.reverse_dns.names as dns_name, '
+                    '    ports_list as port, '
+                    '    ARRAY( '
+                    '     SELECT '
+                    '      CASE '
+                    '        WHEN LOWER(service.tls.certificates.leaf_data.subject_dn) LIKE "%peplink%" '
+                    '        THEN TRUE '
+                    '        ELSE FALSE '
+                    '      END '
+                    '     FROM UNNEST(services) AS service '
+                    '   ) AS pep_link '
+                    'FROM `{table}` '
+                    'WHERE '
+                    '    autonomous_system.asn={asn} AND '
+                    '    TIMESTAMP_TRUNC(snapshot_date, DAY) = TIMESTAMP(DATE_SUB(CURRENT_DATE, INTERVAL 2 DAY)) '  # we can only guarantee that censys's data from yesterday is available , reverse dns names take another day to populate in dataset
+                ).format(ip_col=ip_col, asn=asn, table=bq)
+                query_job = client.query(QUERY)  # API request
+                query_job.result()  # Waits for query to finish
+                bq_df = query_job.to_dataframe()
+
+                # cleaning
+                bq_df['dns_name'] = bq_df['dns_name'].apply(stringified_list_to_list)
+                bq_df['port'] = bq_df['port'].apply(repeated_field_to_list)
+                bq_df['pep_link'] = bq_df['pep_link'].apply(repeated_field_to_list)
+
+                return bq_df
+            else: 
+                exposed_services = search_censys(asn, ipv)
+                df = pd.DataFrame.from_dict(exposed_services)
         except:
             return df
         df['dns_name'] = df['dns_name'].apply(str)
@@ -158,10 +206,13 @@ class DataCollection:
                     right_on='dst'
                 )
                 df = df.drop(columns=['dst'])
+                # drop rows where either 'sec_last_ip' or 'sec_last_hop' is None
+                df = df.dropna(subset=['sec_last_ip', 'sec_last_hop'])
         
         # output to json file
         if upload_to_bq and not fallback_file:
             with tempfile.NamedTemporaryFile(mode='w+', suffix=".json") as temp_json:
+                df['date'] = df['date'].astype(str)
                 df.to_json(temp_json.name, orient="records", lines=True)
                 temp_json.seek(0)
                 upload_exposed_services_file(self.bq_exposed_services_table_id, temp_json.name)

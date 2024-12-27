@@ -27,10 +27,10 @@ dataset.
 
 def starlink_job():
     print("running starlink job")
-    starlink_dc = DataCollection(bq_dataset_id="MY_BQ_DATASET") # FIXME: update with BQ dataset id
-    starlink_df = starlink_dc.get_censys_exposed_services(14593, 4)
+    starlink_dc = DataCollection(bq_dataset_id="hitchhiking_sample") # FIXME: update with BQ dataset id
+    starlink_df = starlink_dc.get_censys_exposed_services(14593, 4, 'censys-io.universal_internet_dataset_v2.base')
     tr_df = starlink_dc.paris_traceroute_exposed_services(starlink_df, 'ip', True) # change to False to save to file instead of BQ
-    starlink_dc.ping_exposed_services(tr_df, 600, 1, True)  # change to False to save to file instead of BQ
+    starlink_dc.ping_exposed_services(tr_df, 10, 1, True)  # change to False to save to file instead of BQ
 
 
 def oneweb_job():
@@ -42,4 +42,4 @@ def oneweb_job():
 
 if __name__ == "__main__":
     starlink_job()
-    oneweb_job()
+    # oneweb_job()
