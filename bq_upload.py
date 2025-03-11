@@ -64,6 +64,11 @@ def upload_exposed_services_file(table_id, file_path):
 
     table = client.get_table(table_id)  # Make an API request.
     print(
+        "Uploading exposed service data from {} to {} table".format(
+            file_path, table_id
+        )
+    )
+    print(
         "Loaded {} rows and {} columns to {}".format(
             table.num_rows, len(table.schema), table_id
         )
@@ -97,6 +102,11 @@ def upload_ping_file(table_id, file_path):
     job.result()  # Waits for the job to complete.
 
     table = client.get_table(table_id)  # Make an API request.
+    print(
+        "Uploading ping data from {} to {} table".format(
+            file_path, table_id
+        )
+    )
     print(
         "Loaded {} rows and {} columns to {}".format(
             table.num_rows, len(table.schema), table_id

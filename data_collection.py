@@ -141,21 +141,23 @@ class DataCollection:
                     'WHERE '
                     '    autonomous_system.asn={asn} AND '
                     '    TIMESTAMP_TRUNC(snapshot_date, DAY) = TIMESTAMP(DATE_SUB(CURRENT_DATE, INTERVAL 2 DAY)) '  # we can only guarantee that censys's data from yesterday is available , reverse dns names take another day to populate in dataset
+                    '    AND host_identifier.ipv4 IS NOT NULL '
                 ).format(ip_col=ip_col, asn=asn, table=bq)
                 query_job = client.query(QUERY)  # API request
                 query_job.result()  # Waits for query to finish
                 bq_df = query_job.to_dataframe()
 
                 # cleaning
-                bq_df['dns_name'] = bq_df['dns_name'].apply(stringified_list_to_list)
-                bq_df['port'] = bq_df['port'].apply(repeated_field_to_list)
-                bq_df['pep_link'] = bq_df['pep_link'].apply(repeated_field_to_list)
+                # bq_df['dns_name'] = bq_df['dns_name'].apply(stringified_list_to_list)
+                # bq_df['port'] = bq_df['port'].apply(repeated_field_to_list)
+                # bq_df['pep_link'] = bq_df['pep_link'].apply(repeated_field_to_list)
 
                 return bq_df
             else: 
                 exposed_services = search_censys(asn, ipv)
                 df = pd.DataFrame.from_dict(exposed_services)
-        except:
+        except Exception as e:
+            print(f"An error occurred: {e}")
             return df
         df['dns_name'] = df['dns_name'].apply(str)
         df = df.groupby(['ip', 'date', 'asn', 'dns_name']).agg(list).reset_index()
@@ -194,7 +196,10 @@ class DataCollection:
             #     df = df[['ip', 'date', 'asn', 'dns_name', 'port', 'pep_link']]
             #     fallback_file = True
                 
-            df[[ip_col]].to_csv(temp_ip.name, header=False, index=False) 
+            unique_ips = df[ip_col].unique()
+            unique_ips_df = pd.DataFrame(unique_ips, columns=[ip_col])
+            unique_ips_df.to_csv(temp_ip.name, header=False, index=False) 
+
             with tempfile.NamedTemporaryFile(mode='w+') as temp_tr:
 
                 run_paris_trs(temp_ip.name, temp_tr.name)
